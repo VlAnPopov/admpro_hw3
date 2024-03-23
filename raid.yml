@@ -1,0 +1,99 @@
+---
+- name: Mount raid
+  hosts: raid_ansible
+  become: true
+  vars:
+  tasks:
+    - name: Install prerequisites
+      ansible.builtin.yum:
+        name:
+          - mdadm
+          - smartmontools
+          - hdparm
+          - gdisk
+        state: present
+    - name: Install external role
+      become: false
+      local_action: command /usr/bin/ansible-galaxy role install ansible-mdadm
+      tags:
+        - mdadm_install
+    - name: Make raid
+      include_role:
+        name: ansible-mdadm
+      vars:
+        mdadm_arrays:
+        - name: md0
+          devices:
+            - /dev/sdb
+            - /dev/sdc
+            - /dev/sdd
+            - /dev/sde
+          level: 10
+          state: present
+    - name: Create partitions
+      block:
+      - name: Create partition 1
+        parted:
+          device: /dev/md0
+          label: gpt
+          number: 1
+          part_end: 20%
+          state: present
+      - name: Create partition 2
+        parted:
+          device: /dev/md0
+          number: 2
+          label: gpt
+          part_start: 20%
+          part_end: 40%
+          state: present
+      - name: Create partition 3
+        parted:
+          device: /dev/md0
+          number: 3
+          label: gpt
+          part_start: 40%
+          part_end: 60%
+          state: present        
+      - name: Create partition 4
+        parted:
+          device: /dev/md0
+          number: 4
+          label: gpt
+          part_start: 60%
+          part_end: 80%
+          state: present
+      - name: Create partition 5
+        parted:
+          device: /dev/md0
+          number: 5
+          label: gpt
+          part_start: 80%
+          state: present
+      - name: Partitions info
+        setup:
+          gather_subset:
+          - '!all'
+          - '!min'
+          - devices
+      - name: Format all
+        filesystem:
+          fstype: ext4
+          dev: "/dev/{{ item }}"
+          state: present
+        with_items: "{{ ansible_facts['devices']['md0']['partitions'] }}"
+      - name: Mount all
+        mount:
+          path: "/mnt/{{ item }}"
+          src: "/dev/{{ item }}"
+          fstype: ext4
+          state: mounted
+        with_items: "{{ ansible_facts['devices']['md0']['partitions'] }}"
+      tags:
+        - partitions
+    - name: Clean external role
+      become: false
+      local_action: command /usr/bin/ansible-galaxy role remove ansible-mdadm
+      tags: [ never, clean ]
+
+
